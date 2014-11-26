@@ -1,51 +1,60 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
+require "yaml"
 
 VAGRANTFILE_API_VERSION = "2"
 
-
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  props = YAML.load_file("vagrant.rb")
   #Path to new hard disk file
-  file_to_disk = './disk.vdi'
+  file_to_disk = "#{props['box']['disk_path']}"
 
-  config.vm.box = "base"
-  config.vm.hostname = "basemachine"
-  config.vm.box_url = "file://c:/boxes/oel65-64.box"
+  config.vm.box = "#{props['box']['name']}"
+  config.vm.hostname = "#{props['box']['name']}"
+  config.vm.box_url = "#{props['box']['url']}"
   # Host-only network configuration
-  config.vm.network :private_network, ip: "192.168.56.20"
+  config.vm.network :private_network, ip: "#{props['box']['ip']}"
   # Mount c:\data directory to /data directory on box
-  config.vm.synced_folder "/data" , "/data", :mount_options => ["dmode=777", "fmode=777"]
-  
+  config.vm.synced_folder "#{props['box']['shared_directory']}" , "/data", :mount_options => ["dmode=777", "fmode=777"]
+
   config.vm.provider :virtualbox do |vb|
-	vb.customize ["modifyvm", :id, "--memory", "2048"]
-	vb.customize ["modifyvm", :id, "--name"  , "basemachine"]
-	vb.customize ["modifyvm", :id, "--cpus"  , 2]
-	vb.customize ["modifyvm", :id, "--chipset", "ich9"]
-  
-	#Script to add a new disk and expand space on OS (root and swap)
-	if ARGV[0] == "up" && ! File.exist?(file_to_disk) 
-		vb.customize [
-			'createhd', 
-			'--filename', file_to_disk, 
-			'--format', 'VDI', 
-			'--size', 100 * 1024
-        ] 
-		
-		vb.customize [
-			'storageattach', :id, 
-			'--storagectl', 'SATA Controller', 
-			'--port', 1, '--device', 0, 
-			'--type', 'hdd', '--medium', 
-			file_to_disk
-        ]
-		
-		config.vm.provision "shell", path: "bootstrap.sh"
-		config.vm.provision "shell", path: "increase_swap.sh"
-	end
+  	vb.customize ["modifyvm", :id, "--memory", "#{props['box']['ram_memory']}"]
+  	vb.customize ["modifyvm", :id, "--name"  , "#{props['box']['name']}"]
+  	vb.customize ["modifyvm", :id, "--cpus"  , props['box']['cpus']]
+  	vb.customize ["modifyvm", :id, "--chipset", "ich9"]
+
+  	#Script to add a new disk and expand space on OS (root and swap)
+  	if ARGV[0] == "up" && ! File.exist?(file_to_disk)
+  		vb.customize [
+  			'createhd',
+  			'--filename', file_to_disk,
+  			'--format', 'VDI',
+  			'--size', props['box']['disk_size'] * 1024
+          ]
+
+  		vb.customize [
+  			'storageattach', :id,
+  			'--storagectl', 'SATA Controller',
+  			'--port', 1, '--device', 0,
+  			'--type', 'hdd', '--medium',
+  			file_to_disk
+          ]
+  	end
   end
-  
+
+  if ARGV[0] == "up" && ! File.exist?(file_to_disk)
+    config.vm.provision "shell" do |s|
+      s.path = "bootstrap.sh"
+    end
+
+    config.vm.provision "shell" do |s|
+      s.path = "increase_swap.sh"
+      s.args   = "'#{props['box']['swap_memory']}'"
+    end
+  end
+
   config.vm.provision "chef_solo" do |chef|
-	chef.cookbooks_path = "../chef/cookbooks"
-	chef.add_recipe "http::install-httpd"
+	   chef.cookbooks_path = "#{props['chef']['repo_path']}/cookbooks"
+	   chef.add_recipe "http::install-httpd"
   end
 end
